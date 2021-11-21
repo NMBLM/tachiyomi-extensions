@@ -50,7 +50,7 @@ abstract class Luscious(
 
     private val lusLang: String = toLusLang(lang)
 
-    private fun toLusLang (lang: String): String {
+    private fun toLusLang(lang: String): String {
         return when (lang) {
             "all" -> FILTER_VALUE_IGNORE
             "en" -> "1"
@@ -70,7 +70,6 @@ abstract class Luscious(
     private val preferences: SharedPreferences by lazy {
         Injekt.get<Application>().getSharedPreferences("source_$id", 0x0000)
     }
-
 
     // Common
 
@@ -119,7 +118,7 @@ abstract class Luscious(
                                 add(this.toJsonObject("audience_ids"))
                             }
 
-                            if (lusLang != FILTER_VALUE_IGNORE){
+                            if (lusLang != FILTER_VALUE_IGNORE) {
                                 add(
                                     languagesFilter.toJsonObject("language_ids").apply {
                                         set("value", "+$lusLang${get("value").asString}")
@@ -234,12 +233,12 @@ abstract class Luscious(
 
     private fun parseAlbumPicturesResponse(response: Response, mangaUrl: String): List<SChapter> {
         val chapters = mutableListOf<SChapter>()
-        when (getMergeChapterPref()){
+        when (getMergeChapterPref()) {
             true -> {
                 val chapter = SChapter.create()
                 chapter.url = mangaUrl
                 chapter.name = "Merged Chapter"
-                //chapter.date_upload = it["created"].asLong // not parsing correctly for some reason
+                // chapter.date_upload = it["created"].asLong // not parsing correctly for some reason
                 chapter.chapter_number = 1F
                 chapters.add(chapter)
             }
@@ -258,13 +257,17 @@ abstract class Luscious(
                     nextPage = data["info"]["has_next_page"].asBoolean
                     data["items"].asJsonArray.map {
                         val chapter = SChapter.create()
-                        chapter.url = when (getResolutionPref()){
+                        val url = when (getResolutionPref()) {
                             "-1" -> it["url_to_original"].asString
                             else -> it["thumbnails"][getResolutionPref()?.toInt()!!]["url"].asString
                         }
-                        chapter.name = it["title"].asString
-                        chapter.date_upload = "${it["created"].asLong}000".toLong()
+                        when {
+                            url.startsWith("//") -> chapter.url = "https:$url"
+                            else -> chapter.url = url
+                        }
                         chapter.chapter_number = it["position"].asInt.toFloat()
+                        chapter.name = chapter.chapter_number.toInt().toString() + " - " + it["title"].asString
+                        chapter.date_upload = "${it["created"].asLong}000".toLong()
                         chapters.add(chapter)
                     }
                     if (nextPage) {
@@ -275,7 +278,6 @@ abstract class Luscious(
                     page++
                 }
             }
-
         }
 
         return chapters.reversed()
@@ -333,13 +335,14 @@ abstract class Luscious(
             nextPage = data["info"]["has_next_page"].asBoolean
             data["items"].asJsonArray.map {
                 val index = it["position"].asInt
-                val url = when (getResolutionPref()){
+                val url = when (getResolutionPref()) {
                     "-1" -> it["url_to_original"].asString
                     else -> it["thumbnails"][getResolutionPref()?.toInt()!!]["url"].asString
                 }
-
-
-                pages.add(Page(index, url, url))
+                when {
+                    url.startsWith("//") -> pages.add(Page(index, "https:$url", "https:$url"))
+                    else -> pages.add(Page(index, url, url))
+                }
             }
             if (nextPage) {
                 val newPage = client.newCall(GET(buildAlbumPicturesPageUrl(id, page))).execute()
@@ -364,7 +367,6 @@ abstract class Luscious(
                 Observable.just(listOf(Page(0, chapter.url, chapter.url)))
             }
         }
-
     }
 
     override fun pageListParse(response: Response): List<Page> = throw UnsupportedOperationException("Not used")
@@ -382,11 +384,10 @@ abstract class Luscious(
                 val data = gson.fromJson<JsonObject>(it.body!!.string()).let { data ->
                     data["data"]["picture"]["list"].asJsonObject
                 }
-                when (getResolutionPref()){
+                when (getResolutionPref()) {
                     "-1" -> data["items"].asJsonArray[page.index % 50].asJsonObject["url_to_original"].asString
                     else -> data["items"].asJsonArray[page.index % 50].asJsonObject["thumbnails"][getResolutionPref()?.toInt()!!]["url"].asString
                 }
-
             }
     }
 
@@ -424,7 +425,7 @@ abstract class Luscious(
             }
             for ((i, _) in this["tags"].asJsonArray.withIndex()) {
                 genreList = "$genreList, ${this["tags"][i]["text"].asString}"
-                if (this["tags"][i]["text"].asString.contains("Artist:")){
+                if (this["tags"][i]["text"].asString.contains("Artist:")) {
                     manga.artist = this["tags"][i]["text"].asString.substringAfter(":").trim()
                     manga.author = manga.artist
                 }
@@ -457,7 +458,7 @@ abstract class Luscious(
     )
 
     override fun fetchSearchManga(page: Int, query: String, filters: FilterList): Observable<MangasPage> {
-        return if (query.startsWith("ID:")){
+        return if (query.startsWith("ID:")) {
             val id = query.substringAfterLast("ID:")
             client.newCall(buildAlbumInfoRequest(id))
                 .asObservableSuccess()
@@ -540,7 +541,6 @@ abstract class Luscious(
         FavoriteTextFilters(),
     )
 
-
     private fun getSortFilters(): List<SelectFilterOption> {
         val sortOptions = mutableListOf<SelectFilterOption>()
         listOf(
@@ -556,6 +556,7 @@ abstract class Luscious(
             SelectFilterOption("Date - Trending", "date_trending"),
             SelectFilterOption("Date - Featured", "date_featured"),
             SelectFilterOption("Date - Last Viewed", "date_last_interaction"),
+            SelectFilterOption("Other - Search Score", "search_score"),
         ).forEach {
             sortOptions.add(it)
         }
@@ -662,7 +663,6 @@ abstract class Luscious(
         CheckboxFilterOption("Thai", toLusLang("th"), false)
     ).filterNot { it.value == lusLang }
 
-
     private fun getGenreFilters() = listOf(
         TriStateFilterOption("3D / Digital Art", "25"),
         TriStateFilterOption("Amateurs", "20"),
@@ -724,12 +724,12 @@ abstract class Luscious(
 
     private inline fun <reified T> Iterable<*>.findInstance() = find { it is T } as? T
 
-    private fun validYears(): List<Int>{
+    private fun validYears(): List<Int> {
         val years = mutableListOf<Int>()
         val current = Calendar.getInstance()
         val currentYear = current.get(Calendar.YEAR)
         var firstYear = 2013
-        while (currentYear != firstYear -1) {
+        while (currentYear != firstYear - 1) {
             years.add(firstYear)
             firstYear++
         }

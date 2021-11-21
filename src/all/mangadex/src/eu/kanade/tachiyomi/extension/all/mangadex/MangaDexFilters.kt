@@ -9,40 +9,41 @@ import java.util.Locale
 class MangaDexFilters {
 
     internal fun getMDFilterList(preferences: SharedPreferences, dexLang: String): FilterList {
-        val contentRatings = listOf(
-            ContentRating("Safe").apply {
-                state =
-                    preferences.getBoolean(MDConstants.getContentRatingSafePrefKey(dexLang), true)
-            },
-            ContentRating("Suggestive").apply {
-                state = preferences.getBoolean(
-                    MDConstants.getContentRatingSuggestivePrefKey(dexLang),
-                    true
-                )
-            },
-            ContentRating("Erotica").apply {
-                state = preferences.getBoolean(
-                    MDConstants.getContentRatingEroticaPrefKey(dexLang),
-                    false
-                )
-            },
-            ContentRating("Pornographic").apply {
-                state = preferences.getBoolean(
-                    MDConstants.getContentRatingPornographicPrefKey(dexLang),
-                    false
-                )
-            },
-        )
 
         return FilterList(
-            OriginalLanguageList(getOriginalLanguage()),
-            ContentRatingList(contentRatings),
+            OriginalLanguageList(getOriginalLanguage(preferences, dexLang)),
+            ContentRatingList(getContentRating(preferences, dexLang)),
             DemographicList(getDemographics()),
             StatusList(getStatus()),
             SortFilter(sortableList.map { it.first }.toTypedArray()),
             TagList(getTags()),
             TagInclusionMode(),
             TagExclusionMode(),
+        )
+    }
+
+    private fun getContentRating(preferences: SharedPreferences, dexLang: String): List<ContentRating> {
+        val contentRatings = preferences.getStringSet(
+            MDConstants.getContentRatingPrefKey(dexLang),
+            MDConstants.contentRatingPrefDefaults
+        )
+        return listOf(
+            ContentRating("Safe").apply {
+                state = contentRatings
+                    ?.contains(MDConstants.contentRatingPrefValSafe) ?: true
+            },
+            ContentRating("Suggestive").apply {
+                state = contentRatings
+                    ?.contains(MDConstants.contentRatingPrefValSuggestive) ?: true
+            },
+            ContentRating("Erotica").apply {
+                state = contentRatings
+                    ?.contains(MDConstants.contentRatingPrefValErotica) ?: false
+            },
+            ContentRating("Pornographic").apply {
+                state = contentRatings
+                    ?.contains(MDConstants.contentRatingPrefValPornographic) ?: false
+            },
         )
     }
 
@@ -77,11 +78,26 @@ class MangaDexFilters {
     private class OriginalLanguageList(originalLanguage: List<OriginalLanguage>) :
         Filter.Group<OriginalLanguage>("Original language", originalLanguage)
 
-    private fun getOriginalLanguage() = listOf(
-        OriginalLanguage("Japanese (Manga)", "ja"),
-        OriginalLanguage("Chinese (Manhua)", "zh"),
-        OriginalLanguage("Korean (Manhwa)", "ko"),
-    )
+    private fun getOriginalLanguage(preferences: SharedPreferences, dexLang: String): List<OriginalLanguage> {
+        val originalLanguages = preferences.getStringSet(
+            MDConstants.getOriginalLanguagePrefKey(dexLang),
+            setOf()
+        )
+        return listOf(
+            OriginalLanguage("Japanese (Manga)", "ja").apply {
+                state = originalLanguages
+                    ?.contains(MDConstants.originalLanguagePrefValJapanese) ?: false
+            },
+            OriginalLanguage("Chinese (Manhua)", "zh").apply {
+                state = originalLanguages
+                    ?.contains(MDConstants.originalLanguagePrefValChinese) ?: false
+            },
+            OriginalLanguage("Korean (Manhwa)", "ko").apply {
+                state = originalLanguages
+                    ?.contains(MDConstants.originalLanguagePrefValKorean) ?: false
+            },
+        )
+    }
 
     internal class Tag(val id: String, name: String) : Filter.TriState(name)
     private class TagList(tags: List<Tag>) : Filter.Group<Tag>("Tags", tags)
@@ -173,12 +189,16 @@ class MangaDexFilters {
         Filter.Select<String>("Excluded tags mode", arrayOf("And", "Or"), 1)
 
     val sortableList = listOf(
-        Pair("Number of follows", ""),
-        Pair("Created at", "createdAt"),
-        Pair("Updated at", "updatedAt"),
+        Pair("Alphabetic", "title"),
+        Pair("Chapter uploaded at", "latestUploadedChapter"),
+        Pair("Number of follows", "followedCount"),
+        Pair("Manga created at", "createdAt"),
+        Pair("Manga info updated at", "updatedAt"),
+        Pair("Relevant manga", "relevance"),
+        Pair("Year", "year")
     )
 
-    class SortFilter(sortables: Array<String>) : Filter.Sort("Sort", sortables, Selection(1, false))
+    class SortFilter(sortables: Array<String>) : Filter.Sort("Sort", sortables, Selection(2, false))
 
     internal fun addFiltersToUrl(url: HttpUrl.Builder, filters: FilterList): String {
         url.apply {
@@ -189,10 +209,10 @@ class MangaDexFilters {
                         filter.state.forEach { lang ->
                             if (lang.state) {
                                 // dex has zh and zh-hk for chinese manhua
-                                if (lang.isoCode == "zh") {
+                                if (lang.isoCode == MDConstants.originalLanguagePrefValChinese) {
                                     addQueryParameter(
                                         "originalLanguage[]",
-                                        "zh-hk"
+                                        MDConstants.originalLanguagePrefValChineseHk
                                     )
                                 }
                                 addQueryParameter(
@@ -238,14 +258,12 @@ class MangaDexFilters {
                     }
                     is SortFilter -> {
                         if (filter.state != null) {
-                            if (filter.state!!.index != 0) {
-                                val query = sortableList[filter.state!!.index].second
-                                val value = when (filter.state!!.ascending) {
-                                    true -> "asc"
-                                    false -> "desc"
-                                }
-                                addQueryParameter("order[$query]", value)
+                            val query = sortableList[filter.state!!.index].second
+                            val value = when (filter.state!!.ascending) {
+                                true -> "asc"
+                                false -> "desc"
                             }
+                            addQueryParameter("order[$query]", value)
                         }
                     }
                     is TagList -> {

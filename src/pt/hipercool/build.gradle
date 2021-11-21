@@ -6,9 +6,8 @@ ext {
     extName = 'HipercooL'
     pkgNameSuffix = 'pt.hipercool'
     extClass = '.Hipercool'
-    extVersionCode = 7
-    libVersion = '1.2'
-    containsNsfw = true
+    extVersionCode = 8
+    isNsfw = true
 }
 
 dependencies {

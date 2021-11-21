@@ -1,6 +1,5 @@
 package eu.kanade.tachiyomi.multisrc.genkan
 
-import generator.ThemeSourceData.MultiLang
 import generator.ThemeSourceData.SingleLang
 import generator.ThemeSourceGenerator
 
@@ -10,7 +9,7 @@ class GenkanGenerator : ThemeSourceGenerator {
 
     override val themeClass = "Genkan"
 
-    override val baseVersionCode: Int = 1
+    override val baseVersionCode: Int = 2
 
     override val sources = listOf(
         SingleLang("Hunlight Scans", "https://hunlight-scans.info", "en"),

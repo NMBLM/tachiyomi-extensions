@@ -1,10 +1,8 @@
 package eu.kanade.tachiyomi.extension.all.hentaihand
 
-import eu.kanade.tachiyomi.annotations.Nsfw
 import eu.kanade.tachiyomi.source.Source
 import eu.kanade.tachiyomi.source.SourceFactory
 
-@Nsfw
 class HentaiHandFactory : SourceFactory {
 
     override fun createSources(): List<Source> = listOf(
@@ -50,7 +48,7 @@ class HentaiHandFactory : SourceFactory {
     )
 }
 
-class HentaiHandOther : HentaiHand("other", extraName = " (Unfiltered)")
+class HentaiHandOther : HentaiHand("all", extraName = " (Unfiltered)")
 class HentaiHandEn : HentaiHand("en", 1)
 class HentaiHandZh : HentaiHand("zh", 2)
 class HentaiHandJa : HentaiHand("ja", 3)

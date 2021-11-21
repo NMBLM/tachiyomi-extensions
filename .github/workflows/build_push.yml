@@ -10,16 +10,17 @@ jobs:
     name: Validate Gradle Wrapper
     runs-on: ubuntu-latest
     steps:
+      - name: Cancel previous runs
+        uses: styfle/cancel-workflow-action@0.9.1
+        with:
+          access_token: ${{ github.token }}
+          all_but_latest: true
+
       - name: Clone repo
         uses: actions/checkout@v2
 
       - name: Validate Gradle Wrapper
         uses: gradle/wrapper-validation-action@v1
-
-      - name: Cancel previous runs
-        uses: styfle/cancel-workflow-action@0.8.0
-        with:
-          access_token: ${{ github.token }}
 
   build_multisrc:
     name: Build multisrc modules
@@ -43,23 +44,23 @@ jobs:
           cp .github/runner-files/ci-gradle.properties ~/.gradle/gradle.properties
 
       - name: Generate sources from the multi-source library
-        uses: eskatos/gradle-command-action@v1
+        uses: gradle/gradle-command-action@v1
         env:
           CI_MULTISRC: "true"
         with:
           arguments: :multisrc:generateExtensions
-          wrapper-cache-enabled: true
+          distributions-cache-enabled: true
           dependencies-cache-enabled: true
           configuration-cache-enabled: true
 
       - name: Build "${{ matrix.lang }}" extensions
-        uses: eskatos/gradle-command-action@v1
+        uses: gradle/gradle-command-action@v1
         env:
           CI_MULTISRC: "true"
           CI_MATRIX_LANG: ${{ matrix.lang }}
         with:
           arguments: assembleRelease
-          wrapper-cache-enabled: true
+          distributions-cache-enabled: true
           dependencies-cache-enabled: true
           configuration-cache-enabled: true
 
@@ -92,13 +93,13 @@ jobs:
           cp .github/runner-files/ci-gradle.properties ~/.gradle/gradle.properties
 
       - name: Build "${{ matrix.lang }}" extensions
-        uses: eskatos/gradle-command-action@v1
+        uses: gradle/gradle-command-action@v1
         env:
           CI_MULTISRC: "false"
           CI_MATRIX_LANG: ${{ matrix.lang }}
         with:
           arguments: assembleRelease
-          wrapper-cache-enabled: true
+          distributions-cache-enabled: true
           dependencies-cache-enabled: true
           configuration-cache-enabled: true
 
@@ -128,6 +129,11 @@ jobs:
           ref: master
           path: master
 
+      - name: Set up JDK
+        uses: actions/setup-java@v1
+        with:
+          java-version: 11
+
       - name: Sign APKs
         run: |
           cd master
@@ -136,6 +142,13 @@ jobs:
             ${{ secrets.ALIAS }} \
             ${{ secrets.KEY_STORE_PASSWORD }} \
             ${{ secrets.KEY_PASSWORD }}
+
+      - name: Run inspector
+        run: |
+          cd master
+          INSPECTOR_LINK="$(curl -s "https://api.github.com/repos/tachiyomiorg/tachiyomi-extensions-inspector/releases/latest" | jq -r '.assets[0].browser_download_url')"
+          curl -L "$INSPECTOR_LINK" -o ./Inspector.jar
+          java -jar ./Inspector.jar "apk" "output.json" "tmp"
 
       - name: Create repo artifacts
         run: |

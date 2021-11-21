@@ -8,20 +8,20 @@ import eu.kanade.tachiyomi.source.model.SChapter
 import eu.kanade.tachiyomi.source.model.SManga
 import eu.kanade.tachiyomi.source.online.ParsedHttpSource
 import eu.kanade.tachiyomi.util.asJsoup
-import java.text.SimpleDateFormat
-import java.util.Calendar
-import java.util.Locale
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
-import org.jsoup.select.Elements
+import java.text.SimpleDateFormat
+import java.util.Calendar
+import java.util.Locale
 
 open class Genkan(
     override val name: String,
     override val baseUrl: String,
-    override val lang: String
+    override val lang: String,
+    val mangaUrlDirectory: String = "/comics",
 ) : ParsedHttpSource() {
 
     override val supportsLatest = true
@@ -31,7 +31,7 @@ open class Genkan(
     override fun popularMangaSelector() = "div.list-item"
 
     override fun popularMangaRequest(page: Int): Request {
-        return GET("$baseUrl/comics?page=$page", headers)
+        return GET("$baseUrl$mangaUrlDirectory?page=$page", headers)
     }
 
     override fun latestUpdatesSelector() = popularMangaSelector()
@@ -80,7 +80,7 @@ open class Genkan(
     // Search
 
     override fun searchMangaRequest(page: Int, query: String, filters: FilterList): Request {
-        return GET("$baseUrl/comics?query=$query", headers)
+        return GET("$baseUrl$mangaUrlDirectory?query=$query", headers)
     }
 
     override fun searchMangaSelector() = popularMangaSelector()

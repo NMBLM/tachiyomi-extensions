@@ -33,7 +33,7 @@ class MundoMangaKun : ParsedHttpSource() {
     override val supportsLatest = false
 
     override val client: OkHttpClient = network.client.newBuilder()
-        .addInterceptor(RateLimitInterceptor(1, 1, TimeUnit.SECONDS))
+        .addInterceptor(RateLimitInterceptor(1, 3, TimeUnit.SECONDS))
         .build()
 
     override fun headersBuilder(): Headers.Builder = Headers.Builder()
@@ -137,9 +137,9 @@ class MundoMangaKun : ParsedHttpSource() {
 
     override fun pageListParse(document: Document): List<Page> {
         return document.select("script:containsData(var paginas)").first().data()
-            .substringAfter("var paginas=")
-            .substringBefore(";var")
-            .let { json.parseToJsonElement(it) }
+            .substringAfter("var paginas = ")
+            .substringBefore("];")
+            .let { json.parseToJsonElement("$it]") }
             .jsonArray
             .mapIndexed { i, page -> Page(i, document.location(), page.jsonPrimitive.content) }
     }

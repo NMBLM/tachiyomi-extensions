@@ -10,14 +10,18 @@ object MDConstants {
         Regex("[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}")
 
     const val mangaLimit = 20
+    const val latestChapterLimit = 100
+
+    const val manga = "manga"
     const val coverArt = "cover_art"
     const val scanlator = "scanlation_group"
     const val author = "author"
     const val artist = "artist"
-    const val cdnUrl = "https://uploads.mangadex.org"
 
+    const val cdnUrl = "https://uploads.mangadex.org"
     const val apiUrl = "https://api.mangadex.org"
     const val apiMangaUrl = "$apiUrl/manga"
+    const val apiChapterUrl = "$apiUrl/chapter"
     const val atHomePostUrl = "https://api.mangadex.network/report"
     val whitespaceRegex = "\\s".toRegex()
 
@@ -27,6 +31,19 @@ object MDConstants {
         .apply { timeZone = TimeZone.getTimeZone("UTC") }
 
     const val prefixIdSearch = "id:"
+    const val prefixChSearch = "ch:"
+
+    const val coverQualityPref = "thumbnailQuality"
+
+    fun getCoverQualityPreferenceKey(dexLang: String): String {
+        return "${coverQualityPref}_$dexLang"
+    }
+
+    fun getCoverQualityPreferenceEntries() = arrayOf("Original", "Medium", "Low")
+
+    fun getCoverQualityPreferenceEntryValues() = arrayOf("", ".512.jpg", ".256.jpg")
+
+    fun getCoverQualityPreferenceDefaultValue() = getCoverQualityPreferenceEntryValues()[0]
 
     const val dataSaverPref = "dataSaverV5"
 
@@ -40,27 +57,24 @@ object MDConstants {
         return "${standardHttpsPortPref}_$dexLang"
     }
 
-    private const val contentRatingSafePref = "contentRatingSafe"
+    private const val contentRatingPref = "contentRating"
+    const val contentRatingPrefValSafe = "safe"
+    const val contentRatingPrefValSuggestive = "suggestive"
+    const val contentRatingPrefValErotica = "erotica"
+    const val contentRatingPrefValPornographic = "pornographic"
+    val contentRatingPrefDefaults = setOf(contentRatingPrefValSafe, contentRatingPrefValSuggestive)
 
-    fun getContentRatingSafePrefKey(dexLang: String): String {
-        return "${contentRatingSafePref}_$dexLang"
+    fun getContentRatingPrefKey(dexLang: String): String {
+        return "${contentRatingPref}_$dexLang"
     }
 
-    private const val contentRatingSuggestivePref = "contentRatingSuggestive"
+    private const val originalLanguagePref = "originalLanguage"
+    const val originalLanguagePrefValJapanese = "ja"
+    const val originalLanguagePrefValChinese = "zh"
+    const val originalLanguagePrefValChineseHk = "zh-hk"
+    const val originalLanguagePrefValKorean = "ko"
 
-    fun getContentRatingSuggestivePrefKey(dexLang: String): String {
-        return "${contentRatingSuggestivePref}_$dexLang"
-    }
-
-    private const val contentRatingEroticaPref = "contentRatingErotica"
-
-    fun getContentRatingEroticaPrefKey(dexLang: String): String {
-        return "${contentRatingEroticaPref}_$dexLang"
-    }
-
-    private const val contentRatingPornographicPref = "contentRatingPornographic"
-
-    fun getContentRatingPornographicPrefKey(dexLang: String): String {
-        return "${contentRatingPornographicPref}_$dexLang"
+    fun getOriginalLanguagePrefKey(dexLang: String): String {
+        return "${originalLanguagePref}_$dexLang"
     }
 }

@@ -6,6 +6,7 @@
         <activity
             android:name=".en.bilibilicomics.BilibiliComicsUrlActivity"
             android:excludeFromRecents="true"
+            android:exported="true"
             android:theme="@android:style/Theme.NoDisplay">
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
@@ -15,12 +16,22 @@
 
                 <data
                     android:host="www.bilibilicomics.com"
-                    android:pathPattern="/detail/..*"
+                    android:pathPattern="/detail/mc..*"
                     android:scheme="https" />
-              
+
+                <data
+                    android:host="bilibilicomics.com"
+                    android:pathPattern="/detail/mc..*"
+                    android:scheme="https" />
+
+                <data
+                    android:host="www.m.bilibilicomics.com"
+                    android:pathPattern="/detail/mc..*"
+                    android:scheme="https" />
+
                 <data
                     android:host="m.bilibilicomics.com"
-                    android:pathPattern="/detail/..*"
+                    android:pathPattern="/detail/mc..*"
                     android:scheme="https" />
             </intent-filter>
         </activity>

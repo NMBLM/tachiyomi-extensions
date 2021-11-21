@@ -1,9 +1,13 @@
 package eu.kanade.tachiyomi.extension.ru.allhentai
 
-import eu.kanade.tachiyomi.annotations.Nsfw
+import android.app.Application
+import android.content.SharedPreferences
+import android.widget.Toast
+import androidx.preference.PreferenceScreen
 import eu.kanade.tachiyomi.lib.ratelimit.RateLimitInterceptor
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.asObservableSuccess
+import eu.kanade.tachiyomi.source.ConfigurableSource
 import eu.kanade.tachiyomi.source.model.Filter
 import eu.kanade.tachiyomi.source.model.FilterList
 import eu.kanade.tachiyomi.source.model.Page
@@ -19,17 +23,23 @@ import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import rx.Observable
+import uy.kohesive.injekt.Injekt
+import uy.kohesive.injekt.api.get
 import java.text.ParseException
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.regex.Pattern
 
-@Nsfw
-class AllHentai : ParsedHttpSource() {
+class AllHentai : ConfigurableSource, ParsedHttpSource() {
+
+    private val preferences: SharedPreferences by lazy {
+        Injekt.get<Application>().getSharedPreferences("source_$id", 0x0000)
+    }
 
     override val name = "AllHentai"
 
-    override val baseUrl = "http://wwv.allhen.live"
+    private var domain: String = preferences.getString(DOMAIN_TITLE, DOMAIN_DEFAULT)!!
+    override val baseUrl: String = domain
 
     override val lang = "ru"
 
@@ -42,13 +52,13 @@ class AllHentai : ParsedHttpSource() {
 
     override fun popularMangaSelector() = "div.tile"
 
-    override fun latestUpdatesSelector() = "div.tile"
+    override fun latestUpdatesSelector() = popularMangaSelector()
 
     override fun popularMangaRequest(page: Int): Request =
-        GET("$baseUrl/list?sortType=rate&offset=${70 * (page - 1)}&max=70", headers)
+        GET("$baseUrl/list?sortType=rate&offset=${70 * (page - 1)}", headers)
 
     override fun latestUpdatesRequest(page: Int): Request =
-        GET("$baseUrl/list?sortType=updated&offset=${70 * (page - 1)}&max=70", headers)
+        GET("$baseUrl/list?sortType=updated&offset=${70 * (page - 1)}", headers)
 
     override fun popularMangaFromElement(element: Element): SManga {
         val manga = SManga.create()
@@ -65,7 +75,7 @@ class AllHentai : ParsedHttpSource() {
 
     override fun popularMangaNextPageSelector() = "a.nextLink"
 
-    override fun latestUpdatesNextPageSelector() = "a.nextLink"
+    override fun latestUpdatesNextPageSelector() = popularMangaNextPageSelector()
 
     override fun searchMangaRequest(page: Int, query: String, filters: FilterList): Request {
         val url = "$baseUrl/search/advanced".toHttpUrlOrNull()!!.newBuilder()
@@ -89,14 +99,14 @@ class AllHentai : ParsedHttpSource() {
                 is OrderBy -> {
                     if (filter.state > 0) {
                         val ord = arrayOf("not", "year", "rate", "popularity", "votes", "created", "updated")[filter.state]
-                        val ordUrl = "$baseUrl/list?sortType=$ord".toHttpUrlOrNull()!!.newBuilder()
+                        val ordUrl = "$baseUrl/list?sortType=$ord&offset=${70 * (page - 1)}".toHttpUrlOrNull()!!.newBuilder()
                         return GET(ordUrl.toString(), headers)
                     }
                 }
                 is Tags -> {
                     if (filter.state > 0) {
-                        val tagName = getTagsList()[filter.state].name
-                        val tagUrl = "$baseUrl/list/tag/$tagName".toHttpUrlOrNull()!!.newBuilder()
+                        val tagName = getTagsList()[filter.state].url
+                        val tagUrl = "$baseUrl/list/tag/$tagName?offset=${70 * (page - 1)}".toHttpUrlOrNull()!!.newBuilder()
                         return GET(tagUrl.toString(), headers)
                     }
                 }
@@ -113,11 +123,11 @@ class AllHentai : ParsedHttpSource() {
 
     override fun searchMangaFromElement(element: Element): SManga = popularMangaFromElement(element)
 
-    // max 200 results
-    override fun searchMangaNextPageSelector(): Nothing? = null
+    // max 200 results (exception OrderBy,Tags)
+    override fun searchMangaNextPageSelector() = popularMangaNextPageSelector()
 
     override fun mangaDetailsParse(document: Document): SManga {
-        val infoElement = document.select("div.leftContent").first()
+        val infoElement = document.select(".expandable").first()
         val rawCategory = infoElement.select("span.elem_category").text()
         val category = if (rawCategory.isNotEmpty()) {
             rawCategory.toLowerCase()
@@ -130,19 +140,19 @@ class AllHentai : ParsedHttpSource() {
         if (authorElement == null) {
             authorElement = infoElement.select("span.elem_screenwriter").first()?.text()
         }
-        manga.title = infoElement.select("h1.names .name").text()
+        manga.title = document.select("h1.names .name").text()
         manga.author = authorElement
         manga.artist = infoElement.select("span.elem_illustrator").first()?.text()
         manga.genre = infoElement.select("span.elem_genre").text().split(",").plusElement(category).joinToString { it.trim() }
-        manga.description = infoElement.select("div.manga-description").text()
+        manga.description = document.select("div.manga-description").text()
         manga.status = parseStatus(infoElement.html())
         manga.thumbnail_url = infoElement.select("img").attr("data-full")
         return manga
     }
 
     private fun parseStatus(element: String): Int = when {
-        element.contains("Запрещена публикация произведения по копирайту") -> SManga.LICENSED
-        element.contains("<h1 class=\"names\"> Сингл") || element.contains("<b>Перевод:</b> завершен") -> SManga.COMPLETED
+        element.contains("Запрещена публикация произведения по копирайту") || element.contains("ЗАПРЕЩЕНА К ПУБЛИКАЦИИ НА ТЕРРИТОРИИ РФ!") -> SManga.LICENSED
+        element.contains("<b>Сингл</b>") || element.contains("<b>Перевод:</b> завершен") -> SManga.COMPLETED
         element.contains("<b>Перевод:</b> продолжается") -> SManga.ONGOING
         else -> SManga.UNKNOWN
     }
@@ -229,9 +239,7 @@ class AllHentai : ParsedHttpSource() {
 
     override fun pageListParse(response: Response): List<Page> {
         val html = response.body!!.string()
-        val beginIndex = html.indexOf("rm_h.init( [")
-        val endIndex = html.indexOf(");", beginIndex)
-        val trimmedHtml = html.substring(beginIndex, endIndex)
+        val trimmedHtml = html.substringAfter("rm_h.initReader(").substringBefore(");")
 
         val p = Pattern.compile("'.*?','.*?',\".*?\"")
         val m = p.matcher(trimmedHtml)
@@ -518,4 +526,32 @@ class AllHentai : ParsedHttpSource() {
     private val tagsName = getTagsList().map {
         it.name
     }.toTypedArray()
+
+    override fun setupPreferenceScreen(screen: androidx.preference.PreferenceScreen) {
+        screen.addPreference(screen.editTextPreference(DOMAIN_TITLE, DOMAIN_DEFAULT, domain))
+    }
+
+    private fun androidx.preference.PreferenceScreen.editTextPreference(title: String, default: String, value: String): androidx.preference.EditTextPreference {
+        return androidx.preference.EditTextPreference(context).apply {
+            key = title
+            this.title = title
+            summary = value
+            this.setDefaultValue(default)
+            dialogTitle = title
+            setOnPreferenceChangeListener { _, newValue ->
+                try {
+                    val res = preferences.edit().putString(title, newValue as String).commit()
+                    Toast.makeText(context, "Для смены домена необходимо перезапустить приложение с полной остановкой.", Toast.LENGTH_LONG).show()
+                    res
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                    false
+                }
+            }
+        }
+    }
+    companion object {
+        private const val DOMAIN_TITLE = "Домен"
+        private const val DOMAIN_DEFAULT = "http://23.allhen.online"
+    }
 }

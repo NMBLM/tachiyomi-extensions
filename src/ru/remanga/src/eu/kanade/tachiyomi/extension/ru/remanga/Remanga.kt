@@ -2,13 +2,13 @@ package eu.kanade.tachiyomi.extension.ru.remanga
 
 import BookDto
 import BranchesDto
-import GenresDto
+import ChunksPageDto
 import LibraryDto
 import MangaDetDto
 import PageDto
 import PageWrapperDto
-import PaidPageDto
 import SeriesWrapperDto
+import TagsDto
 import UserDto
 import android.annotation.SuppressLint
 import android.annotation.TargetApi
@@ -58,7 +58,7 @@ import kotlin.random.Random
 class Remanga : ConfigurableSource, HttpSource() {
     override val name = "Remanga"
 
-    override val baseUrl = "https://api.remanga.org"
+    override val baseUrl = "https://api.xn--80aaig9ahr.xn--c1avg"
 
     override val lang = "ru"
 
@@ -70,7 +70,7 @@ class Remanga : ConfigurableSource, HttpSource() {
 
     override fun headersBuilder(): Headers.Builder = Headers.Builder()
         .add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:77.0) Gecko/20100101 Firefox/78.0$userAgentRandomizer")
-        .add("Referer", "https://www.google.com")
+        .add("Referer", baseUrl)
 
     private val preferences: SharedPreferences by lazy {
         Injekt.get<Application>().getSharedPreferences("source_$id", 0x0000)
@@ -137,8 +137,8 @@ class Remanga : ConfigurableSource, HttpSource() {
             title = en_name
             url = "/api/titles/$dir/"
             thumbnail_url = if (img.high.isNotEmpty()) {
-                "$baseUrl/${img.high}"
-            } else "$baseUrl/${img.mid}"
+                baseUrl + img.high
+            } else baseUrl + img.mid
         }
 
     private val simpleDateFormat by lazy { SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US) }
@@ -205,9 +205,9 @@ class Remanga : ConfigurableSource, HttpSource() {
         }
     }
 
-    private fun parseType(type: GenresDto): GenresDto {
+    private fun parseType(type: TagsDto): TagsDto {
         return when (type.name) {
-            "Западный комикс" -> GenresDto(type.id, "Комикс")
+            "Западный комикс" -> TagsDto(type.id, "Комикс")
             else -> type
         }
     }
@@ -239,22 +239,18 @@ class Remanga : ConfigurableSource, HttpSource() {
             // Do not change the title name to ensure work with a multilingual catalog!
             title = en_name
             url = "/api/titles/$dir/"
-            thumbnail_url = "$baseUrl/${img.high}"
+            thumbnail_url = baseUrl + img.high
             var altName = ""
             if (another_name.isNotEmpty()) {
                 altName = "Альтернативные названия:\n" + another_name + "\n\n"
             }
             this.description = rus_name + "\n" + ratingStar + " " + ratingValue + " (голосов: " + count_rating + ")\n" + altName + Jsoup.parse(o.description).text()
-            genre = (genres + parseType(type)).joinToString { it.name } + ", " + parseAge(age_limit)
+            genre = (genres + categories + parseType(type)).joinToString { it.name } + ", " + parseAge(age_limit)
             status = parseStatus(o.status.id)
         }
     }
     private fun titleDetailsRequest(manga: SManga): Request {
-        val titleId = manga.url
-
-        val newHeaders = headersBuilder().build()
-
-        return GET("$baseUrl/$titleId", newHeaders)
+        return GET(baseUrl + manga.url, headers)
     }
 
     // Workaround to allow "Open in browser" use the real URL.
@@ -284,7 +280,7 @@ class Remanga : ConfigurableSource, HttpSource() {
     }
 
     private fun mangaBranches(manga: SManga): List<BranchesDto> {
-        val responseString = client.newCall(GET("$baseUrl/${manga.url}")).execute().body?.string() ?: return emptyList()
+        val responseString = client.newCall(GET(baseUrl + manga.url)).execute().body?.string() ?: return emptyList()
         // manga requiring login return "content" as a JsonArray instead of the JsonObject we expect
         val content = json.decodeFromString<JsonObject>(responseString)["content"]
         return if (content is JsonObject) {
@@ -304,7 +300,7 @@ class Remanga : ConfigurableSource, HttpSource() {
                 return Observable.just(listOf())
             }
             manga.status == SManga.LICENSED -> {
-                Observable.error(Exception("Licensed - No chapters to show"))
+                Observable.error(Exception("Лицензировано - Нет глав"))
             }
             else -> {
                 val branchId = branch.maxByOrNull { selector(it) }!!.id
@@ -345,20 +341,28 @@ class Remanga : ConfigurableSource, HttpSource() {
         }
     }
 
+    private fun fixLink(link: String): String {
+        if (!link.startsWith("http")) {
+            return "https://remanga.org$link"
+        }
+        return link
+    }
+
     @TargetApi(Build.VERSION_CODES.N)
     override fun pageListParse(response: Response): List<Page> {
         val body = response.body?.string()!!
+        val heightEmptyChunks = 10
         return try {
             val page = json.decodeFromString<SeriesWrapperDto<PageDto>>(body)
-            page.content.pages.filter { it.height > 1 }.map {
-                Page(it.page, "", it.link)
+            page.content.pages.filter { it.height > heightEmptyChunks }.map {
+                Page(it.page, "", fixLink(it.link))
             }
         } catch (e: SerializationException) {
-            val page = json.decodeFromString<SeriesWrapperDto<PaidPageDto>>(body)
+            val page = json.decodeFromString<SeriesWrapperDto<ChunksPageDto>>(body)
             val result = mutableListOf<Page>()
             page.content.pages.forEach {
-                it.filter { page -> page.height > 10 }.forEach { page ->
-                    result.add(Page(result.size, "", page.link))
+                it.filter { page -> page.height > heightEmptyChunks }.forEach { page ->
+                    result.add(Page(result.size, "", fixLink(page.link)))
                 }
             }
             return result
@@ -450,6 +454,11 @@ class Remanga : ConfigurableSource, HttpSource() {
     )
 
     private fun getCategoryList() = listOf(
+        SearchFilter("веб", "5"),
+        SearchFilter("в цвете", "6"),
+        SearchFilter("ёнкома", "8"),
+        SearchFilter("сборник", "10"),
+        SearchFilter("сингл", "11"),
         SearchFilter("алхимия", "47"),
         SearchFilter("ангелы", "48"),
         SearchFilter("антигерой", "26"),
@@ -458,12 +467,12 @@ class Remanga : ConfigurableSource, HttpSource() {
         SearchFilter("аристократия", "117"),
         SearchFilter("армия", "51"),
         SearchFilter("артефакты", "52"),
+        SearchFilter("амнезия / потеря памяти", "123"),
         SearchFilter("боги", "45"),
         SearchFilter("борьба за власть", "52"),
         SearchFilter("будущее", "55"),
-        SearchFilter("в цвете", "6"),
+        SearchFilter("бои на мечах", "122"),
         SearchFilter("вампиры", "112"),
-        SearchFilter("веб", "5"),
         SearchFilter("вестерн", "56"),
         SearchFilter("видеоигры", "35"),
         SearchFilter("виртуальная реальность", "44"),
@@ -473,17 +482,22 @@ class Remanga : ConfigurableSource, HttpSource() {
         SearchFilter("воспоминания из другого мира", "60"),
         SearchFilter("врачи / доктора", "116"),
         SearchFilter("выживание", "41"),
+        SearchFilter("горничные", "23"),
+        SearchFilter("гяру", "28"),
         SearchFilter("гг женщина", "63"),
         SearchFilter("гг мужчина", "64"),
-        SearchFilter("гг силён с самого начала", "110"),
+        SearchFilter("умный гг", "111"),
+        SearchFilter("тупой гг", "109"),
+        SearchFilter("гг имба", "110"),
+        SearchFilter("гг не человек", "123"),
+        SearchFilter("грузовик-сан", "125"),
         SearchFilter("геймеры", "61"),
         SearchFilter("гильдии", "62"),
-        SearchFilter("гяру", "28"),
+        SearchFilter("гоблины", "65"),
         SearchFilter("девушки-монстры", "37"),
         SearchFilter("демоны", "15"),
         SearchFilter("драконы", "66"),
         SearchFilter("дружба", "67"),
-        SearchFilter("ёнкома", "62"),
         SearchFilter("жестокий мир", "69"),
         SearchFilter("животные компаньоны", "70"),
         SearchFilter("завоевание мира", "71"),
@@ -508,8 +522,9 @@ class Remanga : ConfigurableSource, HttpSource() {
         SearchFilter("насилие / жестокость", "82"),
         SearchFilter("нежить", "83"),
         SearchFilter("ниндзя", "30"),
-        SearchFilter("оборотни", "113"),
+        SearchFilter("офисные работники", "40"),
         SearchFilter("обратный гарем", "40"),
+        SearchFilter("оборотни", "113"),
         SearchFilter("пародия", "85"),
         SearchFilter("подземелья", "86"),
         SearchFilter("политика", "87"),
@@ -523,21 +538,16 @@ class Remanga : ConfigurableSource, HttpSource() {
         SearchFilter("реинкарнация", "13"),
         SearchFilter("роботы", "89"),
         SearchFilter("рыцари", "90"),
+        SearchFilter("средневековье", "25"),
         SearchFilter("самураи", "33"),
-        SearchFilter("сборник", "10"),
-        SearchFilter("сингл", "11"),
         SearchFilter("система", "91"),
         SearchFilter("скрытие личности", "93"),
         SearchFilter("спасение мира", "94"),
-        SearchFilter("средневековье", "25"),
-        SearchFilter("спасение мира", "94"),
-        SearchFilter("средневековье", "25"),
         SearchFilter("стимпанк", "92"),
         SearchFilter("супергерои", "95"),
         SearchFilter("традиционные игры", "34"),
-        SearchFilter("тупой гг", "109"),
-        SearchFilter("умный гг", "111"),
-        SearchFilter("управление", "114"),
+        SearchFilter("учитель / ученик", "96"),
+        SearchFilter("управление территорией", "114"),
         SearchFilter("философия", "97"),
         SearchFilter("хентай", "12"),
         SearchFilter("хикикомори", "21"),
@@ -546,11 +556,8 @@ class Remanga : ConfigurableSource, HttpSource() {
     )
 
     private fun getGenreList() = listOf(
-        SearchFilter("арт", "1"),
-        SearchFilter("бдсм", "44"),
         SearchFilter("боевик", "2"),
         SearchFilter("боевые искусства", "3"),
-        SearchFilter("вампиры", "4"),
         SearchFilter("гарем", "5"),
         SearchFilter("гендерная интрига", "6"),
         SearchFilter("героическое фэнтези", "7"),
@@ -562,7 +569,7 @@ class Remanga : ConfigurableSource, HttpSource() {
         SearchFilter("история", "13"),
         SearchFilter("киберпанк", "14"),
         SearchFilter("кодомо", "15"),
-        SearchFilter("комедия", "16"),
+        SearchFilter("комедия", "50"),
         SearchFilter("махо-сёдзё", "17"),
         SearchFilter("меха", "18"),
         SearchFilter("мистика", "19"),
@@ -571,6 +578,7 @@ class Remanga : ConfigurableSource, HttpSource() {
         SearchFilter("постапокалиптика", "22"),
         SearchFilter("приключения", "23"),
         SearchFilter("психология", "24"),
+        SearchFilter("психодел-упоротость-треш", "124"),
         SearchFilter("романтика", "25"),
         SearchFilter("сверхъестественное", "27"),
         SearchFilter("сёдзё", "28"),
@@ -585,7 +593,7 @@ class Remanga : ConfigurableSource, HttpSource() {
         SearchFilter("фантастика", "37"),
         SearchFilter("фэнтези", "38"),
         SearchFilter("школа", "39"),
-        SearchFilter("эротика", "42"),
+        SearchFilter("элементы юмора", "16"),
         SearchFilter("этти", "40"),
         SearchFilter("юри", "41"),
         SearchFilter("яой", "43")

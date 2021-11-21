@@ -15,6 +15,12 @@ class LittleMonsterScan : Madara(
 ) {
 
     override val client: OkHttpClient = super.client.newBuilder()
-        .addInterceptor(RateLimitInterceptor(1, 1, TimeUnit.SECONDS))
+        .addInterceptor(RateLimitInterceptor(1, 2, TimeUnit.SECONDS))
         .build()
+
+    override val altName: String = "Nome alternativo: "
+
+    override val useNewChapterEndpoint = true
+
+    override fun popularMangaSelector() = "div.page-item-detail.manga"
 }

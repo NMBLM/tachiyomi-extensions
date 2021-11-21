@@ -17,10 +17,16 @@ class DropeScan : Madara(
 ) {
 
     override val client: OkHttpClient = super.client.newBuilder()
-        .addInterceptor(RateLimitInterceptor(1, 1, TimeUnit.SECONDS))
+        .addInterceptor(RateLimitInterceptor(1, 2, TimeUnit.SECONDS))
         .build()
 
-    override fun popularMangaRequest(page: Int): Request = GET("$baseUrl/manga/page/$page/?m_orderby=views", headers)
+    override val useNewChapterEndpoint = true
 
-    override fun latestUpdatesRequest(page: Int): Request = GET("$baseUrl/manga/page/$page/?m_orderby=latest", headers)
+    override val altName = "Nome alternativo: "
+
+    override fun popularMangaRequest(page: Int): Request =
+        GET("$baseUrl/manga/page/$page/?m_orderby=views", headers)
+
+    override fun latestUpdatesRequest(page: Int): Request =
+        GET("$baseUrl/manga/page/$page/?m_orderby=latest", headers)
 }

@@ -1,4 +1,3 @@
-include(":annotations")
 include(":core")
 
 include(":lib-ratelimit")
@@ -37,10 +36,13 @@ if (System.getenv("CI") == null) {
      * If you're developing locally and only want to work with a single module,
      * comment out the parts above and uncomment below.
      */
-    // val lang = "all"
-    // val name = "mangadex"
-    // include(":${lang}-${name}")
-    // project(":${lang}-${name}").projectDir = File("src/${lang}/${name}")
+//    val lang = "all"
+//    val name = "mangadex"
+//    val projectName = ":extensions:individual:$lang:$name"
+//    val projectName = ":extensions:multisrc:$lang:$name"
+//    include(projectName)
+//    project(projectName).projectDir = File("src/${lang}/${name}")
+//    project(projectName).projectDir = File("generated-src/${lang}/${name}")
 } else {
     // Running in CI (GitHub Actions)
 

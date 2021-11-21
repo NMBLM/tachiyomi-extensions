@@ -1,6 +1,5 @@
 package eu.kanade.tachiyomi.extension.en.mangarawclub
 
-import eu.kanade.tachiyomi.annotations.Nsfw
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.asObservableSuccess
@@ -25,7 +24,6 @@ import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.concurrent.TimeUnit
 
-@Nsfw
 class MangaRawClub : ParsedHttpSource() {
 
     override val name = "manga-raw.club"
@@ -58,7 +56,7 @@ class MangaRawClub : ParsedHttpSource() {
         if (titleElement == null) {
             titleElement = element.getElementsByClass("novel-title text2row").first()
         }
-        manga.thumbnail_url = coverElement.select("img").attr("data-src")
+        manga.thumbnail_url = coverElement.select("img").attr("abs:data-src")
         manga.setUrlWithoutDomain(element.select("a").first().attr("href"))
         manga.title = titleElement.text()
         return manga

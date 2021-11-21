@@ -2,9 +2,7 @@ package eu.kanade.tachiyomi.extension.all.mangaplus
 
 import android.app.Application
 import android.content.SharedPreferences
-import android.os.Build
-import com.google.gson.Gson
-import com.squareup.duktape.Duktape
+import eu.kanade.tachiyomi.lib.ratelimit.RateLimitInterceptor
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.asObservableSuccess
 import eu.kanade.tachiyomi.source.ConfigurableSource
@@ -28,6 +26,7 @@ import rx.Observable
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 import java.util.UUID
+import java.util.concurrent.TimeUnit
 import androidx.preference.CheckBoxPreference as AndroidXCheckBoxPreference
 import androidx.preference.ListPreference as AndroidXListPreference
 import androidx.preference.PreferenceScreen as AndroidXPreferenceScreen
@@ -51,16 +50,10 @@ abstract class MangaPlus(
         .add("Session-Token", UUID.randomUUID().toString())
 
     override val client: OkHttpClient = network.client.newBuilder()
-        .addInterceptor { imageIntercept(it) }
-        .addInterceptor { thumbnailIntercept(it) }
+        .addInterceptor(::imageIntercept)
+        .addInterceptor(::thumbnailIntercept)
+        .addInterceptor(RateLimitInterceptor(2, 1, TimeUnit.SECONDS))
         .build()
-
-    private val protobufJs: String by lazy {
-        val request = GET(PROTOBUFJS_CDN, headers)
-        client.newCall(request).execute().body!!.string()
-    }
-
-    private val gson: Gson by lazy { Gson() }
 
     private val preferences: SharedPreferences by lazy {
         Injekt.get<Application>().getSharedPreferences("source_$id", 0x0000)
@@ -73,33 +66,6 @@ abstract class MangaPlus(
         get() = if (preferences.getBoolean("${SPLIT_PREF_KEY}_$lang", SPLIT_PREF_DEFAULT_VALUE)) "yes" else "no"
 
     private var titleList: List<Title>? = null
-
-    /**
-     * MANGA Plus recently started supporting other languages, but
-     * they are not defined by the API. This is a temporary fix
-     * to properly filter the titles while their API doesn't get an update.
-     */
-    private val titlesToFix: Map<Int, Language> = mapOf(
-        // Thai
-        100079 to Language.THAI,
-        100080 to Language.THAI,
-        100082 to Language.THAI,
-        100120 to Language.THAI,
-        100121 to Language.THAI,
-        100158 to Language.THAI,
-
-        // Brazilian Portuguese
-        100149 to Language.PORTUGUESE_BR,
-        100150 to Language.PORTUGUESE_BR,
-        100151 to Language.PORTUGUESE_BR,
-        100163 to Language.PORTUGUESE_BR,
-
-        // Indonesian
-        100140 to Language.INDONESIAN,
-        100142 to Language.INDONESIAN,
-        100143 to Language.INDONESIAN,
-        100162 to Language.INDONESIAN
-    )
 
     override fun popularMangaRequest(page: Int): Request {
         val newHeaders = headersBuilder()
@@ -116,7 +82,6 @@ abstract class MangaPlus(
             throw Exception(result.error!!.langPopup.body)
 
         titleList = result.success.titleRankingView!!.titles
-            .fixWrongLanguages()
             .filter { it.language == langCode }
 
         val mangas = titleList!!.map {
@@ -135,7 +100,7 @@ abstract class MangaPlus(
             .set("Referer", "$baseUrl/updates")
             .build()
 
-        return GET("$API_URL/web/web_home?lang=$internalLang", newHeaders)
+        return GET("$API_URL/web/web_homeV3?lang=$internalLang", newHeaders)
     }
 
     override fun latestUpdatesParse(response: Response): MangasPage {
@@ -149,14 +114,13 @@ abstract class MangaPlus(
 
         if (popularResponse.success != null) {
             titleList = popularResponse.success.titleRankingView!!.titles
-                .fixWrongLanguages()
                 .filter { it.language == langCode }
         }
 
-        val mangas = result.success.webHomeView!!.groups
+        val mangas = result.success.webHomeViewV3!!.groups
+            .flatMap { it.titleGroups }
             .flatMap { it.titles }
-            .mapNotNull { it.title }
-            .fixWrongLanguages()
+            .map { it.title }
             .filter { it.language == langCode }
             .map {
                 SManga.create().apply {
@@ -191,7 +155,7 @@ abstract class MangaPlus(
             .set("Referer", "$baseUrl/manga_list/all")
             .build()
 
-        return GET("$API_URL/title_list/all", newHeaders)
+        return GET("$API_URL/title_list/allV2", newHeaders)
     }
 
     override fun searchMangaParse(response: Response): MangasPage {
@@ -201,10 +165,7 @@ abstract class MangaPlus(
             throw Exception(result.error!!.langPopup.body)
 
         if (result.success.titleDetailView != null) {
-            val mangaPlusTitle = result.success.titleDetailView.title.let {
-                val correctLanguage = titlesToFix[it.titleId]
-                if (correctLanguage != null) it.copy(language = correctLanguage) else it
-            }
+            val mangaPlusTitle = result.success.titleDetailView.title
 
             if (mangaPlusTitle.language == langCode) {
                 val manga = SManga.create().apply {
@@ -219,8 +180,8 @@ abstract class MangaPlus(
             return MangasPage(emptyList(), hasNextPage = false)
         }
 
-        titleList = result.success.allTitlesView!!.titles
-            .fixWrongLanguages()
+        titleList = result.success.allTitlesViewV2!!.allTitlesGroup
+            .flatMap { it.titles }
             .filter { it.language == langCode }
 
         val mangas = titleList!!.map {
@@ -448,11 +409,6 @@ abstract class MangaPlus(
         return response
     }
 
-    private fun List<Title>.fixWrongLanguages(): List<Title> = map { title ->
-        val correctLanguage = titlesToFix[title.titleId]
-        if (correctLanguage != null) title.copy(language = correctLanguage) else title
-    }
-
     private val ErrorResult.langPopup: Popup
         get() = when (internalLang) {
             "esp" -> spanishPopup
@@ -460,35 +416,15 @@ abstract class MangaPlus(
         }
 
     private fun Response.asProto(): MangaPlusResponse {
-        if (Build.VERSION.SDK_INT > Build.VERSION_CODES.M)
-            return ProtoBuf.decodeFromByteArray(body!!.bytes())
-
-        // The kotlinx.serialization library eventually always have some issues with
-        // devices with Android version below Nougat. So, if the device is running Android 6.x,
-        // the deserialization is done using ProtobufJS + Duktape + Gson.
-
-        val bytes = body!!.bytes()
-        val messageBytes = "var BYTE_ARR = new Uint8Array([${bytes.joinToString()}]);"
-
-        val res = Duktape.create().use {
-            // The current Kotlin version brokes Duktape's module feature,
-            // so we need to provide an workaround to prevent the usage of 'require'.
-            it.evaluate("var module = { exports: true };")
-            it.evaluate(protobufJs)
-            it.evaluate(messageBytes + DECODE_SCRIPT) as String
-        }
-
-        return gson.fromJson(res, MangaPlusResponse::class.java)
+        return ProtoBuf.decodeFromByteArray(body!!.bytes())
     }
 
     companion object {
         private const val API_URL = "https://jumpg-webapi.tokyo-cdn.com/api"
         private const val USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
-            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/90.0.4430.93 Safari/537.36"
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.131 Safari/537.36"
 
         private val HEX_GROUP = "(.{1,2})".toRegex()
-
-        private const val PROTOBUFJS_CDN = "https://cdn.jsdelivr.net/npm/protobufjs@6.10.1/dist/light/protobuf.js"
 
         private const val RESOLUTION_PREF_KEY = "imageResolution"
         private const val RESOLUTION_PREF_TITLE = "Image resolution"

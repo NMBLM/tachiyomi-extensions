@@ -22,6 +22,7 @@ import eu.kanade.tachiyomi.source.model.SManga
 import eu.kanade.tachiyomi.source.online.HttpSource
 import info.debatty.java.stringsimilarity.JaroWinkler
 import info.debatty.java.stringsimilarity.Levenshtein
+import okhttp3.Dns
 import okhttp3.FormBody
 import okhttp3.Headers
 import okhttp3.Interceptor
@@ -37,7 +38,7 @@ import java.io.IOException
 class Mango : ConfigurableSource, HttpSource() {
 
     override fun popularMangaRequest(page: Int): Request =
-        GET("$baseUrl/api/library", headersBuilder().build())
+        GET("$baseUrl/api/library?depth=0", headersBuilder().build())
 
     // Our popular manga are just our library of manga
     override fun popularMangaParse(response: Response): MangasPage {
@@ -131,7 +132,7 @@ class Mango : ConfigurableSource, HttpSource() {
     }
 
     override fun chapterListRequest(manga: SManga): Request =
-        GET(baseUrl + "/api" + manga.url, headers)
+        GET(baseUrl + "/api" + manga.url + "?sort=auto", headers)
 
     // The chapter url will contain how many pages the chapter contains for our page list endpoint
     override fun chapterListParse(response: Response): List<SChapter> {
@@ -141,14 +142,30 @@ class Mango : ConfigurableSource, HttpSource() {
             apiCookies = ""
             throw Exception("Login Likely Failed. Try Refreshing.")
         }
-        return result["entries"].asJsonArray.mapIndexed { index, obj ->
+        return listChapters(result)
+    }
+
+    // Helper function for listing chapters and chapters in nested titles recursively
+    private fun listChapters(titleObj: JsonObject): List<SChapter> {
+        val chapters = mutableListOf<SChapter>()
+        val topChapters = titleObj.getAsJsonArray("entries")?.map { obj ->
             SChapter.create().apply {
-                chapter_number = index + 1F
-                name = "${chapter_number.toInt()} - ${obj["display_name"].asString}"
-                url = "/page/${obj["title_id"].asString}/${obj["id"].asString}/${obj["pages"].asString}/"
+                name = obj["display_name"].asString
+                url =
+                    "/page/${obj["title_id"].asString}/${obj["id"].asString}/${obj["pages"].asString}/"
                 date_upload = 1000L * obj["mtime"].asLong
             }
-        }.sortedByDescending { it.date_upload }
+        }
+        val subChapters = titleObj.getAsJsonArray("titles")?.map { obj ->
+            val name = obj["display_name"].asString
+            listChapters(obj.asJsonObject).map { chp ->
+                chp.name = "$name / ${chp.name}"
+                chp
+            }
+        }?.flatten()
+        if (topChapters !== null) chapters += topChapters
+        if (subChapters !== null) chapters += subChapters
+        return chapters
     }
 
     // Stub
@@ -184,6 +201,7 @@ class Mango : ConfigurableSource, HttpSource() {
     override val supportsLatest = false
 
     override val baseUrl by lazy { getPrefBaseUrl() }
+    private val port by lazy { getPrefPort() }
     private val username by lazy { getPrefUsername() }
     private val password by lazy { getPrefPassword() }
     private val gson by lazy { Gson() }
@@ -199,6 +217,7 @@ class Mango : ConfigurableSource, HttpSource() {
 
     override val client: OkHttpClient =
         network.client.newBuilder()
+            .dns(Dns.SYSTEM)
             .addInterceptor { authIntercept(it) }
             .build()
 
@@ -211,7 +230,7 @@ class Mango : ConfigurableSource, HttpSource() {
         }
 
         // Do the login if we have not gotten the cookies yet
-        if (apiCookies.isEmpty() || !apiCookies.contains("mango-sessid-9000", true)) {
+        if (apiCookies.isEmpty() || !apiCookies.contains("mango-sessid-$port", true)) {
             doLogin(chain)
         }
 
@@ -243,16 +262,18 @@ class Mango : ConfigurableSource, HttpSource() {
     }
 
     override fun setupPreferenceScreen(screen: androidx.preference.PreferenceScreen) {
-        screen.addPreference(screen.editTextPreference(ADDRESS_TITLE, ADDRESS_DEFAULT, baseUrl))
-        screen.addPreference(screen.editTextPreference(USERNAME_TITLE, USERNAME_DEFAULT, username))
-        screen.addPreference(screen.editTextPreference(PASSWORD_TITLE, PASSWORD_DEFAULT, password, true))
+        screen.addPreference(screen.editTextPreference(ADDRESS_TITLE, ADDRESS_DEFAULT, "The URL to access your Mango instance. Please include the port number if you didn't set up a reverse proxy"))
+        screen.addPreference(screen.editTextPreference(PORT_TITLE, PORT_DEFAULT, "The port number to use if it's not the default 9000"))
+        screen.addPreference(screen.editTextPreference(USERNAME_TITLE, USERNAME_DEFAULT, "Your login username"))
+        screen.addPreference(screen.editTextPreference(PASSWORD_TITLE, PASSWORD_DEFAULT, "Your login password", true))
     }
 
-    private fun androidx.preference.PreferenceScreen.editTextPreference(title: String, default: String, value: String, isPassword: Boolean = false): androidx.preference.EditTextPreference {
+    private fun androidx.preference.PreferenceScreen.editTextPreference(title: String, default: String, summary: String, isPassword: Boolean = false): androidx.preference.EditTextPreference {
         return androidx.preference.EditTextPreference(context).apply {
             key = title
             this.title = title
-            summary = value
+            val input = preferences.getString(title, null)
+            this.summary = if (input == null || input.isEmpty()) summary else input
             this.setDefaultValue(default)
             dialogTitle = title
 
@@ -283,14 +304,17 @@ class Mango : ConfigurableSource, HttpSource() {
         }
         return path
     }
+    private fun getPrefPort(): String = preferences.getString(PORT_TITLE, PORT_DEFAULT)!!
     private fun getPrefUsername(): String = preferences.getString(USERNAME_TITLE, USERNAME_DEFAULT)!!
     private fun getPrefPassword(): String = preferences.getString(PASSWORD_TITLE, PASSWORD_DEFAULT)!!
 
     companion object {
         private const val ADDRESS_TITLE = "Address"
         private const val ADDRESS_DEFAULT = ""
+        private const val PORT_TITLE = "Server Port Number"
+        private const val PORT_DEFAULT = "9000"
         private const val USERNAME_TITLE = "Username"
-        private const val USERNAME_DEFAULT = ""
+        private const val USERNAME_DEFAULT = "admin"
         private const val PASSWORD_TITLE = "Password"
         private const val PASSWORD_DEFAULT = ""
     }
